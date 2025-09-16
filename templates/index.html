@@ -2,27 +2,109 @@
 <html>
 <head>
     <title>Robotic Hand Control</title>
+    <meta charset="utf-8">
+    <!-- These scripts are loaded from a CDN, no need to install them -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
     <style>
-        body {
-            font-family: sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            margin: 0;
-            background-color: #2c3e50;
-            color: white;
-        }
-        img {
-            border: 5px solid #3498db;
-            border-radius: 10px;
-            background-color: #000;
-        }
+        body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background-color: #2c3e50; color: white; }
+        .container { position: relative; }
+        #output_canvas { border: 5px solid #3498db; border-radius: 10px; background-color: #000; }
+        #webcam { display: none; } /* Hide the raw video element */
+        #status { margin-top: 15px; font-size: 1.2em; color: #ecf0f1; }
     </style>
 </head>
 <body>
     <h1>Robotic Hand Control Stream</h1>
-    <img src="{{ url_for('video_feed') }}" width="640" height="480">
+    <div class="container">
+        <video id="webcam" autoplay playsinline></video>
+        <canvas id="output_canvas" width="640px" height="480px"></canvas>
+    </div>
+    <p id="status">Status: Initializing...</p>
+
+    <script type="module">
+        const videoElement = document.getElementById('webcam');
+        const canvasElement = document.getElementById('output_canvas');
+        const canvasCtx = canvasElement.getContext('2d');
+        const statusElement = document.getElementById('status');
+
+        const tipIds = [4, 8, 12, 16, 20];
+        let lastSendTime = 0;
+        const SEND_INTERVAL = 250; // Milliseconds (sends data a max of 4 times per second)
+
+        function onResults(results) {
+            canvasCtx.save();
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const handLandmarks = results.multiHandLandmarks[0];
+                drawConnectors(canvasCtx, handLandmarks, HANDS_CONNECTIONS, { color: '#FFFFFF', lineWidth: 5 });
+                drawLandmarks(canvasCtx, handLandmarks, { color: '#FF0000', lineWidth: 2 });
+
+                const currentTime = Date.now();
+                if (currentTime - lastSendTime > SEND_INTERVAL) {
+                    let fingers = [];
+                    // Thumb (x-axis logic)
+                    if (handLandmarks[tipIds[0]].x > handLandmarks[tipIds[0] - 1].x) { fingers.push(1); } else { fingers.push(0); }
+                    // Other four fingers (y-axis logic)
+                    for (let id = 1; id < 5; id++) {
+                        if (handLandmarks[tipIds[id]].y < handLandmarks[tipIds[id] - 2].y) { fingers.push(1); } else { fingers.push(0); }
+                    }
+                    
+                    const angles = {
+                        "thumb": fingers[0] === 1 ? 90 : 0,
+                        "index": fingers[1] === 1 ? 0 : 90,
+                        "middle": fingers[2] === 1 ? 0 : 180,
+                        "ring": fingers[3] === 1 ? 0 : 90,
+                        "pinky": fingers[4] === 1 ? 90 : 0
+                    };
+
+                    // Send the calculated angles to our Flask server's API endpoint
+                    fetch('/api/hand_data', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(angles)
+                    }).then(response => response.json())
+                      .then(data => {
+                          statusElement.textContent = `Status: Command Sent - Index Finger Angle: ${angles.index}`;
+                          console.log('Success:', data);
+                      })
+                      .catch((error) => {
+                          statusElement.textContent = `Status: Error sending data to server.`;
+                          console.error('Error:', error);
+                      });
+
+                    lastSendTime = currentTime;
+                }
+            } else {
+                statusElement.textContent = "Status: No hand detected.";
+            }
+            canvasCtx.restore();
+        }
+
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+        hands.onResults(onResults);
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({ image: videoElement });
+            },
+            width: 640,
+            height: 480
+        });
+        camera.start();
+        statusElement.textContent = "Status: Camera started. Please show your hand.";
+    </script>
 </body>
 </html>
