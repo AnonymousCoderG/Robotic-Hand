@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: flask-robotic-hand
+    env: python
+    plan: free
+    buildCommand: ./render-build.sh
+    startCommand: gunicorn app:app
