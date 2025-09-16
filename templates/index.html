@@ -3,28 +3,20 @@
 <head>
     <title>Robotic Hand Control</title>
     <meta charset="utf-8">
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background-color: #2c3e50; color: white; }
         .container { position: relative; }
-        #output_canvas { border: 5px solid #3498db; border-radius: 10px; background-color: #000; }
-        #webcam {
-            /* This is important for the Camera utility to work correctly */
-            position: absolute;
-            left: 0;
-            top: 0;
-            transform: scaleX(-1); /* Flip the video horizontally */
-            display: none;
-        }
+        #output_canvas { border: 5px solid #3498db; border-radius: 10px; background-color: #000; transform: scaleX(-1); } /* Flip the canvas */
+        #webcam { display: none; }
         #status { margin-top: 15px; font-size: 1.2em; color: #ecf0f1; }
     </style>
 </head>
 <body>
     <h1>Robotic Hand Control Stream</h1>
     <div class="container">
-        <video id="webcam" playsinline></video>
+        <video id="webcam" autoplay playsinline></video>
         <canvas id="output_canvas" width="640px" height="480px"></canvas>
     </div>
     <p id="status">Status: Initializing...</p>
@@ -40,23 +32,21 @@
         const SEND_INTERVAL = 250; // Milliseconds
 
         function onResults(results) {
+            // This function is now ONLY for drawing and sending data
             canvasCtx.save();
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-            // Draw the video frame onto the canvas. It's already flipped by the CSS.
             canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
             if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                 const handLandmarks = results.multiHandLandmarks[0];
-                // The drawing utils will draw them correctly on the flipped canvas
                 drawConnectors(canvasCtx, handLandmarks, HANDS_CONNECTIONS, { color: '#FFFFFF', lineWidth: 5 });
                 drawLandmarks(canvasCtx, handLandmarks, { color: '#FF0000', lineWidth: 2 });
 
                 const currentTime = Date.now();
                 if (currentTime - lastSendTime > SEND_INTERVAL) {
                     let fingers = [];
-                    // IMPORTANT: The logic for the thumb must be flipped because the video is mirrored!
-                    // If thumb tip is to the LEFT of its base (smaller x value), it's "up".
-                    if (handLandmarks[tipIds[0]].x < handLandmarks[tipIds[0] - 1].x) { fingers.push(1); } else { fingers.push(0); }
+                    // The thumb logic is correct again because we are flipping the canvas, not the video
+                    if (handLandmarks[tipIds[0]].x > handLandmarks[tipIds[0] - 1].x) { fingers.push(1); } else { fingers.push(0); }
                     
                     for (let id = 1; id < 5; id++) {
                         if (handLandmarks[tipIds[id]].y < handLandmarks[tipIds[id] - 2].y) { fingers.push(1); } else { fingers.push(0); }
@@ -80,24 +70,43 @@
         
         hands.setOptions({
             maxNumHands: 1,
-            modelComplexity: 0, // Use the fastest model for performance
+            modelComplexity: 0,
             minDetectionConfidence: 0.5,
             minTrackingConfidence: 0.5
         });
         
         hands.onResults(onResults);
 
-        const camera = new Camera(videoElement, {
-            onFrame: async () => {
-                // This tells MediaPipe to process the current video frame
+        // --- NEW, MANUAL AND RELIABLE PROCESSING LOOP ---
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+                videoElement.srcObject = stream;
+                
+                // When the video is ready to play, start our prediction loop
+                videoElement.addEventListener('playing', predictWebcam);
+                statusElement.textContent = "Status: Camera started. Show your hand.";
+            } catch (err) {
+                console.error("Error accessing camera:", err);
+                statusElement.textContent = "Error: Could not access camera.";
+            }
+        }
+
+        let lastVideoTime = -1;
+        async function predictWebcam() {
+            // Only process a new frame if the video has actually advanced
+            if (videoElement.currentTime !== lastVideoTime) {
+                lastVideoTime = videoElement.currentTime;
+                // Send the current video frame to MediaPipe for processing
                 await hands.send({ image: videoElement });
-            },
-            width: 640,
-            height: 480
-        });
+            }
+            
+            // Call this function again on the next available screen repaint
+            requestAnimationFrame(predictWebcam);
+        }
         
-        camera.start();
-        statusElement.textContent = "Status: Camera started. Show your hand.";
+        startCamera();
+        // --------------------------------------------------
     </script>
 </body>
 </html>
