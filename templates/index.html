@@ -3,48 +3,44 @@
 <head>
     <title>Robotic Hand Control (Async)</title>
     <meta charset="utf-8">
+    <!-- MediaPipe scripts needed by the main page and the reference code pattern -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
     <style>
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background-color: #2c3e50; color: white; }
+        .container { position: relative; }
         #output_canvas { border: 5px solid #3498db; border-radius: 10px; background-color: #000; }
         #webcam { display: none; }
         #status { margin-top: 15px; font-size: 1.2em; color: #ecf0f1; }
-        #startButton { 
-            display: none; /* Hidden by default */
-            font-size: 1.5em;
-            padding: 10px 20px;
-            margin-top: 20px;
-            cursor: pointer;
-            border-radius: 8px;
-            border: 2px solid #3498db;
-            background-color: #2980b9;
-            color: white;
-        }
     </style>
 </head>
 <body>
     <h1>Robotic Hand Control Stream</h1>
-    <canvas id="output_canvas" width="640px" height="480px"></canvas>
-    <video id="webcam" autoplay playsinline style="display:none;"></video>
+    <div class="container">
+        <video id="webcam" playsinline style="display:none;"></video>
+        <canvas id="output_canvas" width="640px" height="480px"></canvas>
+    </div>
     <p id="status">Status: Initializing...</p>
-    <button id="startButton">Start Camera</button>
 
     <script type="module">
         const videoElement = document.getElementById('webcam');
         const canvasElement = document.getElementById('output_canvas');
         const canvasCtx = canvasElement.getContext('2d');
         const statusElement = document.getElementById('status');
-        const startButton = document.getElementById('startButton');
 
         const tipIds = [4, 8, 12, 16, 20];
         let lastSendTime = 0;
         const SEND_INTERVAL = 250; // Milliseconds
 
+        // Create the Web Worker
         const worker = new Worker('/static/worker.js');
 
+        // This function handles messages received FROM the worker
         worker.onmessage = (event) => {
             const { landmarks, image } = event.data;
+
+            // Draw the raw image from the worker onto the canvas
             canvasCtx.save();
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
             canvasCtx.drawImage(image, 0, 0, canvasElement.width, canvasElement.height);
@@ -73,44 +69,25 @@
             }
             canvasCtx.restore();
         };
-
-        async function processVideo() {
-            const imageBitmap = await createImageBitmap(videoElement);
-            worker.postMessage(imageBitmap, [imageBitmap]);
-            requestAnimationFrame(processVideo);
-        }
-
-        async function startCamera() {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
-                videoElement.srcObject = stream;
-                
-                // We must wait for the onplaying event to ensure the video is truly ready.
-                videoElement.onplaying = () => {
-                    statusElement.textContent = "Status: Camera playing. Show your hand.";
-                    startButton.style.display = 'none'; // Hide button if it was shown
-                    processVideo(); // Start the main loop
-                };
-                
-                // Try to play the video.
-                await videoElement.play();
-                console.log("Video autoplay successful.");
-
-            } catch (err) {
-                console.error("Video autoplay was prevented: ", err);
-                statusElement.textContent = "Click the button to start the camera.";
-                // If autoplay fails, show the button for the user to click.
-                startButton.style.display = 'block';
-            }
-        }
         
-        // Add a click listener to the button to manually start the video.
-        startButton.addEventListener('click', () => {
-            statusElement.textContent = "Starting camera after click...";
-            videoElement.play();
+        // --- NEW, ROBUST CAMERA STARTUP LOGIC INSPIRED BY YOUR REFERENCE ---
+        
+        // The Camera utility will manage the video element and the animation loop
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                // On every frame, send the current video image to our worker
+                const imageBitmap = await createImageBitmap(videoElement);
+                worker.postMessage(imageBitmap, [imageBitmap]);
+            },
+            width: 640,
+            height: 480
         });
+        
+        // Start the camera
+        camera.start();
+        statusElement.textContent = "Status: Camera started. Show your hand.";
+        // --------------------------------------------------------------------
 
-        startCamera();
     </script>
 </body>
 </html>
