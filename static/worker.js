@@ -1,14 +1,16 @@
 // This script runs in the background (a separate thread)
 
-// Import the MediaPipe Hands library within the worker
-importScripts(
-    'https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js',
-    'https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js'
-);
+// Import the main MediaPipe Hands library
+importScripts('https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js');
 
+// --- THIS IS THE CRITICAL FIX ---
+// We must explicitly tell the Hands instance where to find its model and data files.
 const hands = new Hands({
-    locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    locateFile: (file) => {
+        return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+    }
 });
+// --------------------------------
 
 hands.setOptions({
     maxNumHands: 1,
@@ -26,6 +28,6 @@ self.onmessage = (event) => {
 
 // When MediaPipe has results, send them back to the main thread
 hands.onResults((results) => {
-    // Post the landmarks and the processed image back to the main thread
+    // Post the landmarks and the processed image back
     self.postMessage({ landmarks: results.multiHandLandmarks, image: results.image });
 });
