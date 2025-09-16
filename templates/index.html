@@ -3,7 +3,6 @@
 <head>
     <title>Robotic Hand Control (Async)</title>
     <meta charset="utf-8">
-    <!-- We only need drawing utils here now -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
     <style>
@@ -76,23 +75,26 @@
             canvasCtx.restore();
         };
 
-        // This function sends video frames TO the worker
+        // --- THIS IS THE UPDATED FUNCTION ---
+        // This function sends video frames TO the worker using the recommended ImageBitmap format
         async function processVideo() {
-            // Get the current video frame as an ImageData object
-            canvasCtx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
-            const imageData = canvasCtx.getImageData(0, 0, canvasElement.width, canvasElement.height);
-
-            // Post the image data to the worker to be processed
-            worker.postMessage(imageData);
+            // Create an ImageBitmap from the current video frame
+            const imageBitmap = await createImageBitmap(videoElement);
+            
+            // Post the ImageBitmap to the worker. The second argument transfers ownership,
+            // which is more efficient and prevents the main thread from lagging.
+            worker.postMessage(imageBitmap, [imageBitmap]);
 
             // Request the next animation frame to continue the loop
             requestAnimationFrame(processVideo);
         }
+        // ------------------------------------
 
         // Start the camera
         navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
             .then(stream => {
                 videoElement.srcObject = stream;
+                // Once the video data starts loading, begin the processing loop
                 videoElement.addEventListener('loadeddata', processVideo);
                 statusElement.textContent = "Status: Camera started. Show your hand.";
             })
