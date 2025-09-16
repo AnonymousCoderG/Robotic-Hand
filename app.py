@@ -125,6 +125,70 @@
 
 
 #above code contains flask for localhost 
+# from flask import Flask, render_template, request, jsonify
+# import queue
+# import threading
+
+# # --- Flask App Initialization ---
+# app = Flask(__name__)
+
+# # --- Thread-safe queue to hold ONLY the most recent command ---
+# # maxsize=1 means old commands are discarded if a new one arrives.
+# # This prevents the hand from acting on stale data.
+# command_queue = queue.Queue(maxsize=1)
+
+# # --- Flask Routes ---
+
+# @app.route('/')
+# def index():
+#     """Serves the main HTML page that contains the JavaScript logic."""
+#     return render_template('index.html')
+
+# @app.route('/api/hand_data', methods=['POST'])
+# def handle_hand_data():
+#     """
+#     Receives hand angle data from the browser's JavaScript and puts it in the queue.
+#     """
+#     angles = request.json
+#     if angles:
+#         # If the queue is full, remove the old item before adding the new one.
+#         if command_queue.full():
+#             try:
+#                 command_queue.get_nowait()
+#             except queue.Empty:
+#                 pass  # This is a safe check, though unlikely to be needed
+        
+#         command_queue.put(angles)
+#         print(f"Received from browser: {angles}") # For server-side logging
+#         return jsonify({"status": "success", "data": angles})
+    
+#     return jsonify({"status": "error", "message": "No data received"}), 400
+
+# @app.route('/api/get_command')
+# def get_command():
+#     """
+#     This is the long-polling endpoint for the ESP8266.
+#     It waits for a command to appear in the queue and sends it as a response.
+#     """
+#     try:
+#         # Wait up to 10 seconds for a command to appear in the queue.
+#         # This holds the HTTP connection open.
+#         angles = command_queue.get(timeout=10)
+#         print(f"Sending to ESP8266: {angles}") # For server-side logging
+#         return jsonify(angles)
+#     except queue.Empty:
+#         # If no command arrives after 10 seconds, send an empty JSON object.
+#         # This tells the ESP8266 to simply try again without error.
+#         return jsonify({})
+
+# # --- Main Execution Block ---
+# if __name__ == '__main__':
+#     # Use host='0.0.0.0' to make the server accessible on your local network
+#     # and for Render deployment. The port will be handled by Render.
+#     app.run(host='0.0.0.0', port=5000, debug=False)
+
+
+
 from flask import Flask, render_template, request, jsonify
 import queue
 import threading
@@ -156,7 +220,7 @@ def handle_hand_data():
             try:
                 command_queue.get_nowait()
             except queue.Empty:
-                pass  # This is a safe check, though unlikely to be needed
+                pass  # This is a safe check
         
         command_queue.put(angles)
         print(f"Received from browser: {angles}") # For server-side logging
@@ -171,18 +235,16 @@ def get_command():
     It waits for a command to appear in the queue and sends it as a response.
     """
     try:
-        # Wait up to 10 seconds for a command to appear in the queue.
-        # This holds the HTTP connection open.
+        # Wait up to 10 seconds for a command. This holds the HTTP connection open.
         angles = command_queue.get(timeout=10)
         print(f"Sending to ESP8266: {angles}") # For server-side logging
         return jsonify(angles)
     except queue.Empty:
-        # If no command arrives after 10 seconds, send an empty JSON object.
-        # This tells the ESP8266 to simply try again without error.
+        # If no command arrives, send an empty object.
+        # This tells the ESP8266 to simply try again.
         return jsonify({})
 
 # --- Main Execution Block ---
 if __name__ == '__main__':
-    # Use host='0.0.0.0' to make the server accessible on your local network
-    # and for Render deployment. The port will be handled by Render.
+    # Use host='0.0.0.0' for Render deployment.
     app.run(host='0.0.0.0', port=5000, debug=False)
