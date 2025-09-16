@@ -10,6 +10,17 @@
         #output_canvas { border: 5px solid #3498db; border-radius: 10px; background-color: #000; }
         #webcam { display: none; }
         #status { margin-top: 15px; font-size: 1.2em; color: #ecf0f1; }
+        #startButton { 
+            display: none; /* Hidden by default */
+            font-size: 1.5em;
+            padding: 10px 20px;
+            margin-top: 20px;
+            cursor: pointer;
+            border-radius: 8px;
+            border: 2px solid #3498db;
+            background-color: #2980b9;
+            color: white;
+        }
     </style>
 </head>
 <body>
@@ -17,12 +28,14 @@
     <canvas id="output_canvas" width="640px" height="480px"></canvas>
     <video id="webcam" autoplay playsinline style="display:none;"></video>
     <p id="status">Status: Initializing...</p>
+    <button id="startButton">Start Camera</button>
 
     <script type="module">
         const videoElement = document.getElementById('webcam');
         const canvasElement = document.getElementById('output_canvas');
         const canvasCtx = canvasElement.getContext('2d');
         const statusElement = document.getElementById('status');
+        const startButton = document.getElementById('startButton');
 
         const tipIds = [4, 8, 12, 16, 20];
         let lastSendTime = 0;
@@ -49,19 +62,10 @@
                         if (handLandmarks[tipIds[id]].y < handLandmarks[tipIds[id] - 2].y) { fingers.push(1); } else { fingers.push(0); }
                     }
                     
-                    const angles = {
-                        "thumb": fingers[0] === 1 ? 90 : 0,
-                        "index": fingers[1] === 1 ? 0 : 90,
-                        "middle": fingers[2] === 1 ? 0 : 180,
-                        "ring": fingers[3] === 1 ? 0 : 90,
-                        "pinky": fingers[4] === 1 ? 90 : 0
-                    };
+                    const angles = { "thumb": fingers[0]===1?90:0, "index": fingers[1]===1?0:90, "middle": fingers[2]===1?0:180, "ring": fingers[3]===1?0:90, "pinky": fingers[4]===1?90:0 };
 
-                    fetch('/api/hand_data', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(angles)
-                    }).then(() => statusElement.textContent = `Status: Command Sent!`);
+                    fetch('/api/hand_data', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(angles) })
+                        .then(() => statusElement.textContent = `Status: Command Sent!`);
                     lastSendTime = currentTime;
                 }
             } else {
@@ -70,41 +74,43 @@
             canvasCtx.restore();
         };
 
-        // --- UPDATED AND MORE ROBUST LOGIC ---
         async function processVideo() {
-            // Wait for the video to have enough data to play
-            await videoElement.play(); 
-            
-            // Create an ImageBitmap from the current video frame
             const imageBitmap = await createImageBitmap(videoElement);
-            
-            // Post the ImageBitmap to the worker to be processed
             worker.postMessage(imageBitmap, [imageBitmap]);
-
-            // Request the next animation frame to continue the loop
             requestAnimationFrame(processVideo);
         }
 
-        // Start the camera and the processing loop
         async function startCamera() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
                 videoElement.srcObject = stream;
-                statusElement.textContent = "Status: Camera started. Show your hand.";
                 
-                // Use 'onplaying' event to ensure video is ready before we start processing
+                // We must wait for the onplaying event to ensure the video is truly ready.
                 videoElement.onplaying = () => {
-                    processVideo();
+                    statusElement.textContent = "Status: Camera playing. Show your hand.";
+                    startButton.style.display = 'none'; // Hide button if it was shown
+                    processVideo(); // Start the main loop
                 };
+                
+                // Try to play the video.
+                await videoElement.play();
+                console.log("Video autoplay successful.");
 
             } catch (err) {
-                console.error("Error accessing camera: ", err);
-                statusElement.textContent = "Error: Could not access camera. Please grant permission.";
+                console.error("Video autoplay was prevented: ", err);
+                statusElement.textContent = "Click the button to start the camera.";
+                // If autoplay fails, show the button for the user to click.
+                startButton.style.display = 'block';
             }
         }
         
+        // Add a click listener to the button to manually start the video.
+        startButton.addEventListener('click', () => {
+            statusElement.textContent = "Starting camera after click...";
+            videoElement.play();
+        });
+
         startCamera();
-        // ------------------------------------
     </script>
 </body>
 </html>
