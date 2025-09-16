@@ -26,16 +26,12 @@
 
         const tipIds = [4, 8, 12, 16, 20];
         let lastSendTime = 0;
-        const SEND_INTERVAL = 250; // Milliseconds (4 times per second)
+        const SEND_INTERVAL = 250; // Milliseconds
 
-        // Create the Web Worker
         const worker = new Worker('/static/worker.js');
 
-        // This function handles messages received FROM the worker
         worker.onmessage = (event) => {
             const { landmarks, image } = event.data;
-
-            // Draw the raw image from the worker onto the canvas
             canvasCtx.save();
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
             canvasCtx.drawImage(image, 0, 0, canvasElement.width, canvasElement.height);
@@ -61,7 +57,6 @@
                         "pinky": fingers[4] === 1 ? 90 : 0
                     };
 
-                    // Send the data to our Flask server
                     fetch('/api/hand_data', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
@@ -75,33 +70,41 @@
             canvasCtx.restore();
         };
 
-        // --- THIS IS THE UPDATED FUNCTION ---
-        // This function sends video frames TO the worker using the recommended ImageBitmap format
+        // --- UPDATED AND MORE ROBUST LOGIC ---
         async function processVideo() {
+            // Wait for the video to have enough data to play
+            await videoElement.play(); 
+            
             // Create an ImageBitmap from the current video frame
             const imageBitmap = await createImageBitmap(videoElement);
             
-            // Post the ImageBitmap to the worker. The second argument transfers ownership,
-            // which is more efficient and prevents the main thread from lagging.
+            // Post the ImageBitmap to the worker to be processed
             worker.postMessage(imageBitmap, [imageBitmap]);
 
             // Request the next animation frame to continue the loop
             requestAnimationFrame(processVideo);
         }
-        // ------------------------------------
 
-        // Start the camera
-        navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
-            .then(stream => {
+        // Start the camera and the processing loop
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
                 videoElement.srcObject = stream;
-                // Once the video data starts loading, begin the processing loop
-                videoElement.addEventListener('loadeddata', processVideo);
                 statusElement.textContent = "Status: Camera started. Show your hand.";
-            })
-            .catch(err => {
+                
+                // Use 'onplaying' event to ensure video is ready before we start processing
+                videoElement.onplaying = () => {
+                    processVideo();
+                };
+
+            } catch (err) {
                 console.error("Error accessing camera: ", err);
-                statusElement.textContent = "Error: Could not access camera.";
-            });
+                statusElement.textContent = "Error: Could not access camera. Please grant permission.";
+            }
+        }
+        
+        startCamera();
+        // ------------------------------------
     </script>
 </body>
 </html>
