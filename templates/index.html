@@ -1,9 +1,8 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Robotic Hand Control (Async)</title>
+    <title>Robotic Hand Control</title>
     <meta charset="utf-8">
-    <!-- MediaPipe scripts needed by the main page and the reference code pattern -->
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
@@ -11,14 +10,21 @@
         body { font-family: sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background-color: #2c3e50; color: white; }
         .container { position: relative; }
         #output_canvas { border: 5px solid #3498db; border-radius: 10px; background-color: #000; }
-        #webcam { display: none; }
+        #webcam {
+            /* This is important for the Camera utility to work correctly */
+            position: absolute;
+            left: 0;
+            top: 0;
+            transform: scaleX(-1); /* Flip the video horizontally */
+            display: none;
+        }
         #status { margin-top: 15px; font-size: 1.2em; color: #ecf0f1; }
     </style>
 </head>
 <body>
     <h1>Robotic Hand Control Stream</h1>
     <div class="container">
-        <video id="webcam" playsinline style="display:none;"></video>
+        <video id="webcam" playsinline></video>
         <canvas id="output_canvas" width="640px" height="480px"></canvas>
     </div>
     <p id="status">Status: Initializing...</p>
@@ -33,27 +39,25 @@
         let lastSendTime = 0;
         const SEND_INTERVAL = 250; // Milliseconds
 
-        // Create the Web Worker
-        const worker = new Worker('/static/worker.js');
-
-        // This function handles messages received FROM the worker
-        worker.onmessage = (event) => {
-            const { landmarks, image } = event.data;
-
-            // Draw the raw image from the worker onto the canvas
+        function onResults(results) {
             canvasCtx.save();
             canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-            canvasCtx.drawImage(image, 0, 0, canvasElement.width, canvasElement.height);
+            // Draw the video frame onto the canvas. It's already flipped by the CSS.
+            canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
 
-            if (landmarks && landmarks.length > 0) {
-                const handLandmarks = landmarks[0];
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                const handLandmarks = results.multiHandLandmarks[0];
+                // The drawing utils will draw them correctly on the flipped canvas
                 drawConnectors(canvasCtx, handLandmarks, HANDS_CONNECTIONS, { color: '#FFFFFF', lineWidth: 5 });
                 drawLandmarks(canvasCtx, handLandmarks, { color: '#FF0000', lineWidth: 2 });
-                
+
                 const currentTime = Date.now();
                 if (currentTime - lastSendTime > SEND_INTERVAL) {
                     let fingers = [];
-                    if (handLandmarks[tipIds[0]].x > handLandmarks[tipIds[0] - 1].x) { fingers.push(1); } else { fingers.push(0); }
+                    // IMPORTANT: The logic for the thumb must be flipped because the video is mirrored!
+                    // If thumb tip is to the LEFT of its base (smaller x value), it's "up".
+                    if (handLandmarks[tipIds[0]].x < handLandmarks[tipIds[0] - 1].x) { fingers.push(1); } else { fingers.push(0); }
+                    
                     for (let id = 1; id < 5; id++) {
                         if (handLandmarks[tipIds[id]].y < handLandmarks[tipIds[id] - 2].y) { fingers.push(1); } else { fingers.push(0); }
                     }
@@ -68,26 +72,32 @@
                  statusElement.textContent = "Status: No hand detected.";
             }
             canvasCtx.restore();
-        };
+        }
+
+        const hands = new Hands({
+            locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+        });
         
-        // --- NEW, ROBUST CAMERA STARTUP LOGIC INSPIRED BY YOUR REFERENCE ---
+        hands.setOptions({
+            maxNumHands: 1,
+            modelComplexity: 0, // Use the fastest model for performance
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
         
-        // The Camera utility will manage the video element and the animation loop
+        hands.onResults(onResults);
+
         const camera = new Camera(videoElement, {
             onFrame: async () => {
-                // On every frame, send the current video image to our worker
-                const imageBitmap = await createImageBitmap(videoElement);
-                worker.postMessage(imageBitmap, [imageBitmap]);
+                // This tells MediaPipe to process the current video frame
+                await hands.send({ image: videoElement });
             },
             width: 640,
             height: 480
         });
         
-        // Start the camera
         camera.start();
         statusElement.textContent = "Status: Camera started. Show your hand.";
-        // --------------------------------------------------------------------
-
     </script>
 </body>
 </html>
